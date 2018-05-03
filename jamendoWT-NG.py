@@ -3,21 +3,12 @@
 # reqs
 from sepy.SEPAClient import *
 from sepy.YSAPObject import *
+from lib.JamHandler import *
+import configparser
 import requests
 import logging
 import json
 import sys
-
-# namespaces
-qmul = "http://eecs.qmul.ac.uk/wot#"
-
-# settings
-updateURI = "http://localhost:8000/update"
-subscribeURI = "ws://localhost:9000/subscribe"
-
-# jamendo
-NAMESEARCH_URL = "http://api.jamendo.com/v3.0/tracks?client_id=%s&fuzzytags=%s"
-clientID = "7a4abfcc"
 
 remove_actions = """PREFIX qmul:<http://eecs.qmul.ac.uk/wot#>
 PREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -39,25 +30,6 @@ WHERE {{
   ?inputData dul:hasDataValue ?dataValue
 }}"""
 
-
-sub_to_actions = """PREFIX qmul:<http://eecs.qmul.ac.uk/wot#>
-PREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX wot: <http://wot.arces.unibo.it/sepa#>
-PREFIX td: <http://wot.arces.unibo.it/ontology/web_of_things#>
-PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-PREFIX dul: <http://www.ontologydesignpatterns.org/ont/dul/DUL.owl#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-SELECT ?actionInstance ?inputData ?dataValue ?outputData
-WHERE {{
-  <{thingURI}> wot:hasTD <{thingDescURI}> .
-  <{thingDescURI}> wot:hasInteractionPattern <{actionURI}> .
-  <{actionURI}> wot:hasInstance ?actionInstance .
-  ?actionInstance wot:hasInputData ?inputData .
-  ?inputData dul:hasDataValue ?dataValue .
-  ?actionInstance wot:hasOutputData ?outputData
-}}"""
-
-
 action_output = """PREFIX qmul:<http://eecs.qmul.ac.uk/wot#>
 PREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX wot: <http://wot.arces.unibo.it/sepa#>
@@ -71,71 +43,27 @@ INSERT DATA {{ GRAPH <{graph}> {{
   {triples}
 }} }}"""
 
-class ActionHandler:
-
-    def __init__(self, kp):
-        self.counter = 0
-        self.kp = kp
-
-    def handle(self, added, removed):
-
-        try:
-        
-        # check if it is the first request
-            if (self.counter > 0):
-    
-                # debug message
-                print("Search request #%s" % self.counter)
-                
-                # cycle over added bindings
-                for a in added:
-                    
-                    # read the input
-                    print("callback 1")
-                    inputData = json.loads(a["dataValue"]["value"])
-                    outputGraph = a["outputData"]["value"]
-                    
-                    # search on jamendo
-                    print("callback 2")
-                    searchPattern = "+".join(inputData["tags"])
-                    r = requests.get(NAMESEARCH_URL % (clientID, searchPattern))
-                    print("Asking Jamendo for songs matching %s" % searchPattern)
-                    res = json.loads(r.text)
-                    print(res)
-                    print("callback 3")
-    
-                    # iterate on results and put them in the named graph
-                    triples = []
-                    for r in res["results"]:                
-                        triples.append(" <%s> rdf:type ac:AudioClip " % r["shorturl"])
-                        triples.append(" <%s> dc:title '%s' " % (r["shorturl"], r["name"]))
-                        triples.append(" <%s> ac:available_as <%s>  " % (r["shorturl"], r["shareurl"]))
-                        triples.append(" <%s> rdf:type ac:AudioFile " % r["shareurl"])                    
-                    tl = ".".join(triples)
-                    print(action_output.format(
-                        graph = outputGraph,
-                        triples = tl
-                    ))
-                    print("PRE UPDATE")
-                    self.kp.update(updateURI, action_output.format(
-                        graph = outputGraph,
-                        triples = tl
-                    ))                
-                    print("POST UPDATE")
-                    
-                    # add results            
-    
-            # increment requests
-            self.counter += 1
-
-        except:
-            pdb.set_trace()
             
 # main
 if __name__ == "__main__":
 
+    ##############################################################
+    #
+    # Initialization
+    #
+    ##############################################################
+
+    # initialize the logging system
+    logger = logging.getLogger('jamendoWT')
+    logging.basicConfig(format='[%(levelname)s] %(message)s', level=logging.DEBUG)
+    logging.debug("Logging subsystem initialized")
+    
+    # read jamendo key
+    config = configparser.ConfigParser()
+    config.read("jamendoWT.conf")
+    clientID = config["Jamendo"]["clientId"]
+
     # create a new KP
-    #kp = LowLevelKP(None, 40)
     kp = SEPAClient(None, 40)
 
     # create an YSAPObject
@@ -145,13 +73,19 @@ if __name__ == "__main__":
     # - thing
     # - thingDescription
     # - search action
-    # - search action dataschema
-    thingURI = qmul + "JamendoWT"
-    thingDescURI = qmul + "JamendoWT_TD"
-    actionURI = qmul + "searchAction"
-    indataSchemaURI = qmul + "searchAction_IDS"
-    outdataSchemaURI = qmul + "searchAction_ODS"
+    # - search action input and output dataschema
+    thingURI = ysap.getNamespace("qmul") + "JamendoWT"
+    thingDescURI = ysap.getNamespace("qmul") + "JamendoWT_TD"
+    actionURI = ysap.getNamespace("qmul") + "searchAction"
+    indataSchemaURI = ysap.getNamespace("qmul") + "searchAction_IDS"
+    outdataSchemaURI = ysap.getNamespace("qmul") + "searchAction_ODS"
 
+    ##############################################################
+    #
+    # Put the Thing Description into SEPA
+    #
+    ##############################################################
+    
     # get the first update (TD_INIT)
     updText = ysap.getUpdate("TD_INIT",
                              {"thingURI": " <%s> " % thingURI,
@@ -166,34 +100,33 @@ if __name__ == "__main__":
                               "actionName": " 'searchByTags' ",                              
                               "inDataSchema": " <%s> " % indataSchemaURI,
                               "outDataSchema": " <%s> " % outdataSchemaURI,
-                              "actionComment": " 'Search song by tags' "
-                             })
+                              "actionComment": " 'Search song by tags' " })
     kp.update(ysap.updateURI, updText)
         
     # # remove existing action instances
     # kp.update(updateURI, remove_actions.format(
     #     actionURI = actionURI
     # ))
-    
-    # # put the thing description    
-    # kp.update(updateURI, init_td.format(
-    #     thingURI = thingURI,
-    #     thingName = "JamendoWT",
-    #     thingDescURI = thingDescURI,
-    #     actionURI = actionURI,
-    #     actionName = "Search",
-    #     actionComment = "Search using tags",
-    #     actionDataSchema = dataSchemaURI
-    # ))
 
-    # # subscribe
-    # kp.subscribe(subscribeURI, sub_to_actions.format(
-    #     thingURI = thingURI,
-    #     thingDescURI = thingDescURI,
-    #     actionURI = actionURI,
-    # ), "actions", ActionHandler(kp))
+    ##############################################################
+    #
+    # Subscribe to actions
+    #
+    ##############################################################
 
-    # wait
+    # subscribe
+    subText = ysap.getQuery("ACTION_REQUESTS",
+                            {"thingURI": " <%s> " % thingURI,
+                             "thingDescURI": " <%s> " % thingDescURI,
+                             "actionURI": " <%s> " % actionURI })
+    kp.subscribe(ysap.subscribeURI, subText, "actions", JamHandler(kp, ysap, clientID))
+
+    ##############################################################
+    #
+    # Wait for the end...
+    #
+    ##############################################################    
+
     logging.info("WebThing ready! Waiting for actions!")
     try:
        input("Press <ENTER> to close the WebThing")
