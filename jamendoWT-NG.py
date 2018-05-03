@@ -5,44 +5,7 @@ from sepy.SEPAClient import *
 from sepy.YSAPObject import *
 from lib.JamHandler import *
 import configparser
-import requests
 import logging
-import json
-import sys
-
-remove_actions = """PREFIX qmul:<http://eecs.qmul.ac.uk/wot#>
-PREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX wot: <http://wot.arces.unibo.it/sepa#>
-PREFIX td: <http://wot.arces.unibo.it/ontology/web_of_things#>
-PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-PREFIX dul: <http://www.ontologydesignpatterns.org/ont/dul/DUL.owl#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-DELETE {{
-  <{actionURI}> rdf:type wot:Action .
-  <{actionURI}> wot:hasInstance ?actionInstance .
-  ?actionInstance wot:hasInputData ?inputData .
-  ?inputData dul:hasDataValue ?dataValue
-}}
-WHERE {{
-  <{actionURI}> rdf:type wot:Action .
-  <{actionURI}> wot:hasInstance ?actionInstance .
-  ?actionInstance wot:hasInputData ?inputData .
-  ?inputData dul:hasDataValue ?dataValue
-}}"""
-
-action_output = """PREFIX qmul:<http://eecs.qmul.ac.uk/wot#>
-PREFIX rdf:<http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX wot: <http://wot.arces.unibo.it/sepa#>
-PREFIX td: <http://wot.arces.unibo.it/ontology/web_of_things#>
-PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-PREFIX dul: <http://www.ontologydesignpatterns.org/ont/dul/DUL.owl#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX dc: <http://purl.org/dc/elements/1.1>
-PREFIX ac: <http://audiocommons.org/ns/audiocommons#>
-INSERT DATA {{ GRAPH <{graph}> {{  
-  {triples}
-}} }}"""
-
             
 # main
 if __name__ == "__main__":
